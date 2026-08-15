@@ -1,9 +1,22 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { Recipe, Cookbook, MealPlanItem, GroceryItem, AisleCategory } from '../types/recipe';
-import { defaultRecipes, defaultCookbooks } from '../data/defaultRecipes';
 import type { UnitSystem } from '../utils/unitConverter';
 import { scaleAmount } from '../utils/unitConverter';
-import { CloudSyncService } from '../services/cloudSync';
+import {
+  dbFetchRecipes,
+  dbSaveRecipe,
+  dbDeleteRecipe,
+  dbFetchCookbooks,
+  dbSaveCookbook,
+  dbDeleteCookbook,
+  dbFetchMealPlans,
+  dbSaveMealPlan,
+  dbDeleteMealPlan,
+  dbFetchGroceryItems,
+  dbSaveGroceryItem,
+  dbDeleteGroceryItem,
+  subscribeToSupabase,
+} from '../services/supabase';
 
 interface AppContextType {
   recipes: Recipe[];
@@ -75,25 +88,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const params = new URLSearchParams(window.location.search);
     const syncParam = params.get('sync');
     if (syncParam) {
-      CloudSyncService.setSyncCode(syncParam);
+      localStorage.setItem('recime_sync_code', syncParam.toLowerCase().trim());
       return syncParam.toLowerCase().trim();
     }
-    return CloudSyncService.getSyncCode() || 'joka-receitas';
+    return localStorage.getItem('recime_sync_code') || 'joka-receitas';
   });
 
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
   const [lastSyncedTime, setLastSyncedTime] = useState<string>('');
   const isSyncingRef = useRef(false);
 
-  // Load from localStorage or defaults
+  // Load initial state from localStorage as immediate fast cache
   const [recipes, setRecipes] = useState<Recipe[]>(() => {
     const saved = localStorage.getItem('recime_recipes');
-    return saved ? JSON.parse(saved) : defaultRecipes;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [cookbooks, setCookbooks] = useState<Cookbook[]>(() => {
     const saved = localStorage.getItem('recime_cookbooks');
-    return saved ? JSON.parse(saved) : defaultCookbooks;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [mealPlan, setMealPlan] = useState<MealPlanItem[]>(() => {
@@ -122,234 +135,322 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedCategory, setSelectedCategory] = useState('Todas');
 
   const setSyncCode = (code: string) => {
-    CloudSyncService.setSyncCode(code);
-    setSyncCodeState(code.toLowerCase().trim());
+    const cleaned = code.toLowerCase().trim();
+    localStorage.setItem('recime_sync_code', cleaned);
+    setSyncCodeState(cleaned);
   };
 
-  // Cloud Sync Handler with smart union merge
+  // Pull all data directly from Supabase PostgreSQL
   const syncNow = useCallback(async () => {
     if (isSyncingRef.current) return;
     isSyncingRef.current = true;
     setSyncStatus('syncing');
 
     try {
-      const remoteData = await CloudSyncService.pullData();
+      const [dbRecipes, dbCbooks, dbMeals, dbGroc] = await Promise.all([
+        dbFetchRecipes(syncCode),
+        dbFetchCookbooks(syncCode),
+        dbFetchMealPlans(syncCode),
+        dbFetchGroceryItems(syncCode),
+      ]);
 
-      if (remoteData && remoteData.recipes && remoteData.recipes.length > 0) {
-        // Smart merge recipes by ID
-        setRecipes(prevLocal => {
-          const map = new Map<string, Recipe>();
-          // 1. Put all remote recipes
-          remoteData.recipes.forEach((r: Recipe) => map.set(r.id, r));
-          // 2. Put local recipes (if local is newer or unique)
-          prevLocal.forEach(r => {
-            if (!map.has(r.id)) {
-              map.set(r.id, r);
-            }
-          });
-          return Array.from(map.values());
-        });
+      setRecipes(dbRecipes);
+      setCookbooks(dbCbooks);
+      setMealPlan(dbMeals);
+      setGroceryList(dbGroc);
 
-        if (remoteData.cookbooks && remoteData.cookbooks.length > 0) {
-          setCookbooks(prev => {
-            const map = new Map();
-            remoteData.cookbooks.forEach((c: Cookbook) => map.set(c.id, c));
-            prev.forEach(c => { if (!map.has(c.id)) map.set(c.id, c); });
-            return Array.from(map.values());
-          });
-        }
-
-        if (remoteData.mealPlan) {
-          setMealPlan(remoteData.mealPlan);
-        }
-
-        if (remoteData.groceryList) {
-          setGroceryList(remoteData.groceryList);
-        }
-      } else {
-        // If remote vault is empty, push local state to initialize it
-        await CloudSyncService.pushData({
-          recipes,
-          cookbooks,
-          mealPlan,
-          groceryList,
-        });
-      }
+      localStorage.setItem('recime_recipes', JSON.stringify(dbRecipes));
+      localStorage.setItem('recime_cookbooks', JSON.stringify(dbCbooks));
+      localStorage.setItem('recime_mealplan', JSON.stringify(dbMeals));
+      localStorage.setItem('recime_grocery', JSON.stringify(dbGroc));
 
       setSyncStatus('synced');
       setLastSyncedTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } catch (err) {
-      console.warn('Sync failed:', err);
+      console.warn('Supabase fetch failed:', err);
       setSyncStatus('error');
     } finally {
       isSyncingRef.current = false;
     }
-  }, [recipes, cookbooks, mealPlan, groceryList]);
-
-  // Initial sync on startup
-  useEffect(() => {
-    if (syncCode) {
-      syncNow();
-    }
   }, [syncCode]);
 
-  // Auto-sync polling every 5 seconds and when window/screen gets focus
+  // Initial load from Supabase on mount or when syncCode changes
+  useEffect(() => {
+    syncNow();
+  }, [syncCode]);
+
+  // Realtime subscription via Supabase PostgreSQL
   useEffect(() => {
     if (!syncCode) return;
 
-    const interval = setInterval(() => {
+    const unsubscribe = subscribeToSupabase(syncCode, () => {
+      console.log('⚡ Realtime update received from Supabase!');
       syncNow();
-    }, 5000);
+    });
 
-    const onFocus = () => {
-      syncNow();
-    };
-
+    const onFocus = () => syncNow();
     window.addEventListener('focus', onFocus);
 
     return () => {
-      clearInterval(interval);
+      unsubscribe();
       window.removeEventListener('focus', onFocus);
     };
   }, [syncCode, syncNow]);
 
-  // Persistence & Cloud push effects on local change
-  useEffect(() => {
-    localStorage.setItem('recime_recipes', JSON.stringify(recipes));
-    if (syncCode && !isSyncingRef.current) {
-      CloudSyncService.pushData({ recipes, cookbooks, mealPlan, groceryList });
-    }
-  }, [recipes]);
-
-  useEffect(() => {
-    localStorage.setItem('recime_cookbooks', JSON.stringify(cookbooks));
-    if (syncCode && !isSyncingRef.current) {
-      CloudSyncService.pushData({ recipes, cookbooks, mealPlan, groceryList });
-    }
-  }, [cookbooks]);
-
-  useEffect(() => {
-    localStorage.setItem('recime_mealplan', JSON.stringify(mealPlan));
-    if (syncCode && !isSyncingRef.current) {
-      CloudSyncService.pushData({ recipes, cookbooks, mealPlan, groceryList });
-    }
-  }, [mealPlan]);
-
-  useEffect(() => {
-    localStorage.setItem('recime_grocery', JSON.stringify(groceryList));
-    if (syncCode && !isSyncingRef.current) {
-      CloudSyncService.pushData({ recipes, cookbooks, mealPlan, groceryList });
-    }
-  }, [groceryList]);
-
+  // Cache unit system locally
   useEffect(() => {
     localStorage.setItem('recime_unit_system', unitSystem);
   }, [unitSystem]);
 
-  // Recipe actions
+  // -------------------------------------------------------------
+  // RECIPE ACTIONS (Optimistic UI + Supabase Persistence)
+  // -------------------------------------------------------------
   const addRecipe = (recipeData: Omit<Recipe, 'id' | 'createdAt'>): Recipe => {
     const newRecipe: Recipe = {
       ...recipeData,
       id: `rec-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
-    setRecipes(prev => [newRecipe, ...prev]);
+
+    setRecipes(prev => {
+      const updated = [newRecipe, ...prev];
+      localStorage.setItem('recime_recipes', JSON.stringify(updated));
+      return updated;
+    });
+
+    // Save to Supabase in background
+    dbSaveRecipe(newRecipe, syncCode).catch(console.error);
+
     return newRecipe;
   };
 
   const updateRecipe = (id: string, updates: Partial<Recipe>) => {
-    setRecipes(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+    let targetRecipe: Recipe | null = null;
+
+    setRecipes(prev => {
+      const updated = prev.map(r => {
+        if (r.id === id) {
+          targetRecipe = { ...r, ...updates };
+          return targetRecipe;
+        }
+        return r;
+      });
+      localStorage.setItem('recime_recipes', JSON.stringify(updated));
+      return updated;
+    });
+
     if (selectedRecipe?.id === id) {
       setSelectedRecipe(prev => prev ? { ...prev, ...updates } : null);
+    }
+
+    if (targetRecipe) {
+      dbSaveRecipe(targetRecipe, syncCode).catch(console.error);
     }
   };
 
   const deleteRecipe = (id: string) => {
-    setRecipes(prev => prev.filter(r => r.id !== id));
-    setCookbooks(prev => prev.map(cb => ({
-      ...cb,
-      recipeIds: cb.recipeIds.filter(rId => rId !== id)
-    })));
-    setMealPlan(prev => prev.filter(mp => mp.recipeId !== id));
+    setRecipes(prev => {
+      const updated = prev.filter(r => r.id !== id);
+      localStorage.setItem('recime_recipes', JSON.stringify(updated));
+      return updated;
+    });
+
+    setCookbooks(prev => {
+      const updated = prev.map(cb => ({
+        ...cb,
+        recipeIds: cb.recipeIds.filter(rId => rId !== id)
+      }));
+      localStorage.setItem('recime_cookbooks', JSON.stringify(updated));
+      return updated;
+    });
+
+    setMealPlan(prev => {
+      const updated = prev.filter(mp => mp.recipeId !== id);
+      localStorage.setItem('recime_mealplan', JSON.stringify(updated));
+      return updated;
+    });
+
     if (selectedRecipe?.id === id) setSelectedRecipe(null);
+
+    // Delete in Supabase
+    dbDeleteRecipe(id).catch(console.error);
   };
 
   const toggleFavorite = (id: string) => {
-    setRecipes(prev => prev.map(r => r.id === id ? { ...r, favorite: !r.favorite } : r));
+    let updatedFavRecipe: Recipe | null = null;
+    setRecipes(prev => {
+      const updated = prev.map(r => {
+        if (r.id === id) {
+          updatedFavRecipe = { ...r, favorite: !r.favorite };
+          return updatedFavRecipe;
+        }
+        return r;
+      });
+      localStorage.setItem('recime_recipes', JSON.stringify(updated));
+      return updated;
+    });
+
     if (selectedRecipe?.id === id) {
       setSelectedRecipe(prev => prev ? { ...prev, favorite: !prev.favorite } : null);
     }
+
+    if (updatedFavRecipe) {
+      dbSaveRecipe(updatedFavRecipe, syncCode).catch(console.error);
+    }
   };
 
-  // Cookbook actions
+  // -------------------------------------------------------------
+  // COOKBOOK ACTIONS
+  // -------------------------------------------------------------
   const addCookbook = (cookbookData: Omit<Cookbook, 'id'>) => {
     const newCookbook: Cookbook = {
       ...cookbookData,
       id: `cb-${Date.now()}`,
     };
-    setCookbooks(prev => [...prev, newCookbook]);
+    setCookbooks(prev => {
+      const updated = [...prev, newCookbook];
+      localStorage.setItem('recime_cookbooks', JSON.stringify(updated));
+      return updated;
+    });
+    dbSaveCookbook(newCookbook, syncCode).catch(console.error);
   };
 
   const updateCookbook = (id: string, updates: Partial<Cookbook>) => {
-    setCookbooks(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    let updatedCb: Cookbook | null = null;
+    setCookbooks(prev => {
+      const updated = prev.map(c => {
+        if (c.id === id) {
+          updatedCb = { ...c, ...updates };
+          return updatedCb;
+        }
+        return c;
+      });
+      localStorage.setItem('recime_cookbooks', JSON.stringify(updated));
+      return updated;
+    });
+    if (updatedCb) {
+      dbSaveCookbook(updatedCb, syncCode).catch(console.error);
+    }
   };
 
   const deleteCookbook = (id: string) => {
-    setCookbooks(prev => prev.filter(c => c.id !== id));
+    setCookbooks(prev => {
+      const updated = prev.filter(c => c.id !== id);
+      localStorage.setItem('recime_cookbooks', JSON.stringify(updated));
+      return updated;
+    });
+    dbDeleteCookbook(id).catch(console.error);
   };
 
   const toggleRecipeInCookbook = (cookbookId: string, recipeId: string) => {
-    setCookbooks(prev => prev.map(cb => {
-      if (cb.id !== cookbookId) return cb;
-      const exists = cb.recipeIds.includes(recipeId);
-      return {
-        ...cb,
-        recipeIds: exists ? cb.recipeIds.filter(id => id !== recipeId) : [...cb.recipeIds, recipeId]
-      };
-    }));
+    let updatedCb: Cookbook | null = null;
+    setCookbooks(prev => {
+      const updated = prev.map(cb => {
+        if (cb.id !== cookbookId) return cb;
+        const exists = cb.recipeIds.includes(recipeId);
+        updatedCb = {
+          ...cb,
+          recipeIds: exists ? cb.recipeIds.filter(id => id !== recipeId) : [...cb.recipeIds, recipeId]
+        };
+        return updatedCb;
+      });
+      localStorage.setItem('recime_cookbooks', JSON.stringify(updated));
+      return updated;
+    });
+    if (updatedCb) {
+      dbSaveCookbook(updatedCb, syncCode).catch(console.error);
+    }
   };
 
-  // Meal plan actions
+  // -------------------------------------------------------------
+  // MEAL PLAN ACTIONS
+  // -------------------------------------------------------------
   const addToMealPlan = (item: Omit<MealPlanItem, 'id'>) => {
     const newItem: MealPlanItem = {
       ...item,
       id: `mp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     };
-    setMealPlan(prev => [...prev, newItem]);
+    setMealPlan(prev => {
+      const updated = [...prev, newItem];
+      localStorage.setItem('recime_mealplan', JSON.stringify(updated));
+      return updated;
+    });
+    dbSaveMealPlan(newItem, syncCode).catch(console.error);
   };
 
   const removeFromMealPlan = (id: string) => {
-    setMealPlan(prev => prev.filter(mp => mp.id !== id));
+    setMealPlan(prev => {
+      const updated = prev.filter(mp => mp.id !== id);
+      localStorage.setItem('recime_mealplan', JSON.stringify(updated));
+      return updated;
+    });
+    dbDeleteMealPlan(id).catch(console.error);
   };
 
   const clearMealPlan = () => {
+    mealPlan.forEach(mp => dbDeleteMealPlan(mp.id).catch(console.error));
     setMealPlan([]);
+    localStorage.removeItem('recime_mealplan');
   };
 
-  // Grocery actions
+  // -------------------------------------------------------------
+  // GROCERY ACTIONS
+  // -------------------------------------------------------------
   const addGroceryItem = (item: Omit<GroceryItem, 'id' | 'addedAt'>) => {
     const newItem: GroceryItem = {
       ...item,
       id: `groc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       addedAt: new Date().toISOString(),
     };
-    setGroceryList(prev => [newItem, ...prev]);
+    setGroceryList(prev => {
+      const updated = [newItem, ...prev];
+      localStorage.setItem('recime_grocery', JSON.stringify(updated));
+      return updated;
+    });
+    dbSaveGroceryItem(newItem, syncCode).catch(console.error);
   };
 
   const toggleGroceryItem = (id: string) => {
-    setGroceryList(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item));
+    let updatedItem: GroceryItem | null = null;
+    setGroceryList(prev => {
+      const updated = prev.map(item => {
+        if (item.id === id) {
+          updatedItem = { ...item, checked: !item.checked };
+          return updatedItem;
+        }
+        return item;
+      });
+      localStorage.setItem('recime_grocery', JSON.stringify(updated));
+      return updated;
+    });
+    if (updatedItem) {
+      dbSaveGroceryItem(updatedItem, syncCode).catch(console.error);
+    }
   };
 
   const removeGroceryItem = (id: string) => {
-    setGroceryList(prev => prev.filter(item => item.id !== id));
+    setGroceryList(prev => {
+      const updated = prev.filter(item => item.id !== id);
+      localStorage.setItem('recime_grocery', JSON.stringify(updated));
+      return updated;
+    });
+    dbDeleteGroceryItem(id).catch(console.error);
   };
 
   const clearCompletedGrocery = () => {
-    setGroceryList(prev => prev.filter(item => !item.checked));
+    const completed = groceryList.filter(item => item.checked);
+    completed.forEach(item => dbDeleteGroceryItem(item.id).catch(console.error));
+    setGroceryList(prev => {
+      const updated = prev.filter(item => !item.checked);
+      localStorage.setItem('recime_grocery', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const clearAllGrocery = () => {
+    groceryList.forEach(item => dbDeleteGroceryItem(item.id).catch(console.error));
     setGroceryList([]);
+    localStorage.removeItem('recime_grocery');
   };
 
   const importIngredientsToGrocery = (recipe: Recipe, targetServings?: number) => {
@@ -357,7 +458,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     const newItems: GroceryItem[] = recipe.ingredients.map(ing => {
       const scaled = scaleAmount(ing.amount, recipe.servings, servingsRatio);
-      return {
+      const item: GroceryItem = {
         id: `groc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         name: ing.name,
         amount: scaled,
@@ -368,9 +469,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         recipeTitle: recipe.title,
         addedAt: new Date().toISOString(),
       };
+      dbSaveGroceryItem(item, syncCode).catch(console.error);
+      return item;
     });
 
-    setGroceryList(prev => [...newItems, ...prev]);
+    setGroceryList(prev => {
+      const updated = [...newItems, ...prev];
+      localStorage.setItem('recime_grocery', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const generateGroceryFromMealPlan = () => {
@@ -384,7 +491,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       recipe.ingredients.forEach(ing => {
         const scaled = scaleAmount(ing.amount, recipe.servings, planItem.servings || recipe.servings);
-        newItems.push({
+        const item: GroceryItem = {
           id: `groc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           name: ing.name,
           amount: scaled,
@@ -394,11 +501,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           recipeId: recipe.id,
           recipeTitle: recipe.title,
           addedAt: new Date().toISOString(),
-        });
+        };
+        dbSaveGroceryItem(item, syncCode).catch(console.error);
+        newItems.push(item);
       });
     });
 
-    setGroceryList(prev => [...newItems, ...prev]);
+    setGroceryList(prev => {
+      const updated = [...newItems, ...prev];
+      localStorage.setItem('recime_grocery', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   return (
