@@ -19,17 +19,25 @@ interface RecipeImportModalProps {
 }
 
 export const RecipeImportModal: React.FC<RecipeImportModalProps> = ({ onClose }) => {
-  const { addRecipe, setSelectedRecipe } = useApp();
+  const { 
+    addRecipe, 
+    setSelectedRecipe, 
+    setActiveTab, 
+    setSelectedCategory, 
+    setSearchQuery 
+  } = useApp();
   
-  const [activeTab, setActiveTab] = useState<'url' | 'text' | 'photo'>('url');
+  const [activeTab, setActiveTabLocal] = useState<'url' | 'text' | 'photo'>('url');
   const [inputUrl, setInputUrl] = useState('');
+  const [customTitle, setCustomTitle] = useState('');
+  const [customNotes, setCustomNotes] = useState('');
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   // Sample quick templates
   const sampleUrlYouTube = 'https://www.youtube.com/watch?v=QFMxJWh3mqE&t=50s';
-  const sampleUrlInstagram = 'https://www.instagram.com/reel/C3x9mK0L_pQ/?igsh=risotto_funghi';
+  const sampleUrlInstagram = 'https://www.instagram.com/reel/Da9LHCIM5my/?igsh=Z2l3aDlndmtxc3hq';
   const sampleText = `Bolo de Cenoura com Cobertura de Brigadeiro Crocante
 Rendimento: 8 porções
 Tempo: 40 min
@@ -67,6 +75,21 @@ Modo de preparo:
         }
 
         parsedRecipe = await extractRecipeFromUrl(inputUrl.trim());
+
+        // Override title or caption if custom text provided
+        if (customTitle.trim()) {
+          parsedRecipe.title = customTitle.trim();
+        }
+
+        if (customNotes.trim()) {
+          const notesParsed = parseRawRecipeText(customNotes.trim());
+          if (notesParsed.ingredients && notesParsed.ingredients.length > 0) {
+            parsedRecipe.ingredients = notesParsed.ingredients;
+          }
+          if (notesParsed.instructions && notesParsed.instructions.length > 0) {
+            parsedRecipe.instructions = notesParsed.instructions;
+          }
+        }
       } else if (activeTab === 'text') {
         if (!inputText.trim()) {
           setError('Cole o texto da receita antes de importar.');
@@ -91,24 +114,28 @@ Modo de preparo:
 
       const created = addRecipe({
         title: parsedRecipe.title || 'Receita Importada',
-        description: parsedRecipe.description || 'Receita extraída com sucesso pelo Smart Importer do ReciMe.',
+        description: parsedRecipe.description || `Receita extraída com sucesso a partir de ${inputUrl}`,
         image: parsedRecipe.image || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&w=1200&q=80',
         prepTimeMinutes: parsedRecipe.prepTimeMinutes || 15,
         cookTimeMinutes: parsedRecipe.cookTimeMinutes || 25,
         servings: parsedRecipe.servings || 4,
         difficulty: parsedRecipe.difficulty || 'Fácil',
-        cuisine: parsedRecipe.cuisine || 'Brasileira',
-        category: parsedRecipe.category || 'Sobremesa',
-        tags: parsedRecipe.tags || ['Importado', 'Smart IA', 'Favorito'],
+        cuisine: parsedRecipe.cuisine || 'Gourmet',
+        category: parsedRecipe.category || 'Jantar',
+        tags: parsedRecipe.tags || ['Importado', 'Favorito'],
         sourceUrl: parsedRecipe.sourceUrl || inputUrl,
-        sourcePlatform: parsedRecipe.sourcePlatform || 'youtube',
+        sourcePlatform: parsedRecipe.sourcePlatform || 'instagram',
         videoEmbedUrl: parsedRecipe.videoEmbedUrl,
-        author: parsedRecipe.author || 'Chef do Vídeo',
-        ingredients: parsedRecipe.ingredients || [],
-        instructions: parsedRecipe.instructions || [],
+        author: parsedRecipe.author || '@chef',
+        ingredients: parsedRecipe.ingredients || [
+          { id: 'ing-1', name: 'Ingredientes conforme o post original', amount: 1, unit: 'porção', category: 'Mercearia & Grãos' }
+        ],
+        instructions: parsedRecipe.instructions || [
+          { step: 1, title: 'Modo de Preparo', instruction: 'Siga as instruções conforme a publicação original da receita.', timerSeconds: 600 }
+        ],
         nutrition: parsedRecipe.nutrition || {
           calories: 380,
-          protein: 8,
+          protein: 10,
           carbs: 45,
           fat: 16,
         },
@@ -122,6 +149,11 @@ Modo de preparo:
         origin: { y: 0.5 },
       });
 
+      // Ensure user sees their recipe immediately on the Explore grid
+      setActiveTab('explore');
+      setSelectedCategory('Todas');
+      setSearchQuery('');
+
       setIsLoading(false);
       onClose();
       setSelectedRecipe(created);
@@ -134,7 +166,7 @@ Modo de preparo:
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div 
         className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden border border-recime-parchment-border flex flex-col animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
@@ -167,7 +199,7 @@ Modo de preparo:
         {/* Tab Navigation */}
         <div className="flex border-b border-recime-parchment-border bg-recime-parchment-subtle p-1.5 gap-1">
           <button
-            onClick={() => setActiveTab('url')}
+            onClick={() => setActiveTabLocal('url')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'url' ? 'bg-white text-recime-navy shadow-xs' : 'text-recime-muted hover:text-recime-navy'
             }`}
@@ -177,7 +209,7 @@ Modo de preparo:
           </button>
 
           <button
-            onClick={() => setActiveTab('text')}
+            onClick={() => setActiveTabLocal('text')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'text' ? 'bg-white text-recime-navy shadow-xs' : 'text-recime-muted hover:text-recime-navy'
             }`}
@@ -187,7 +219,7 @@ Modo de preparo:
           </button>
 
           <button
-            onClick={() => setActiveTab('photo')}
+            onClick={() => setActiveTabLocal('photo')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'photo' ? 'bg-white text-recime-navy shadow-xs' : 'text-recime-muted hover:text-recime-navy'
             }`}
@@ -218,10 +250,33 @@ Modo de preparo:
                   type="url"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=... ou https://instagram.com/reel/..."
+                  placeholder="https://instagram.com/reel/... ou https://youtube.com/watch?v=..."
                   className="w-full p-3.5 rounded-2xl bg-recime-parchment text-sm border border-recime-parchment-border focus:ring-2 focus:ring-recime-mango focus:outline-none"
                 />
               </div>
+
+              {/* Optional Title & Caption for Instagram */}
+              {inputUrl.includes('instagram.com') && (
+                <div className="flex flex-col gap-2 p-3.5 rounded-2xl bg-recime-parchment-subtle border border-recime-parchment-border animate-in fade-in">
+                  <span className="text-[11px] font-bold text-recime-navy">
+                    ✨ Personalizar dados do Instagram (Opcional):
+                  </span>
+                  <input
+                    type="text"
+                    value={customTitle}
+                    onChange={(e) => setCustomTitle(e.target.value)}
+                    placeholder="Nome do Prato (ex: Risoto de Alho-poró)"
+                    className="w-full p-2.5 rounded-xl bg-white text-xs border border-recime-parchment-border focus:ring-2 focus:ring-recime-mango focus:outline-none"
+                  />
+                  <textarea
+                    value={customNotes}
+                    onChange={(e) => setCustomNotes(e.target.value)}
+                    rows={3}
+                    placeholder="Cole a legenda do post aqui se desejar extrair os ingredientes..."
+                    className="w-full p-2.5 rounded-xl bg-white text-xs border border-recime-parchment-border focus:ring-2 focus:ring-recime-mango focus:outline-none resize-none font-mono"
+                  />
+                </div>
+              )}
 
               {/* Supported platform pills */}
               <div className="flex items-center justify-between text-xs text-recime-muted pt-1">
@@ -251,7 +306,7 @@ Modo de preparo:
                   onClick={() => setInputUrl(sampleUrlInstagram)}
                   className="text-left text-xs text-pink-600 font-semibold hover:underline"
                 >
-                  📸 Risotto Cremoso de Funghi (Instagram)
+                  📸 Post do Instagram (Reel)
                 </button>
               </div>
             </div>
@@ -291,7 +346,7 @@ Modo de preparo:
               <div 
                 onClick={() => {
                   setInputText(sampleText);
-                  setActiveTab('text');
+                  setActiveTabLocal('text');
                 }}
                 className="border-2 border-dashed border-recime-parchment-border hover:border-recime-mango rounded-3xl p-8 flex flex-col items-center justify-center gap-3 bg-recime-parchment cursor-pointer transition-colors"
               >

@@ -18,7 +18,8 @@ import {
   Check, 
   Share2,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  ArrowLeft
 } from 'lucide-react';
 
 interface RecipeDetailModalProps {
@@ -91,36 +92,49 @@ export const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({ recipe, on
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
       <div 
-        className="relative bg-recime-parchment w-full max-w-3xl min-h-screen sm:min-h-0 sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-recime-parchment-border animate-in fade-in zoom-in-95 duration-200"
+        className="relative bg-recime-parchment w-full max-w-3xl min-h-screen sm:min-h-0 sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-recime-parchment-border animate-in fade-in zoom-in-95 duration-200 pb-16 sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
         
-        {/* Sticky Header Buttons */}
-        <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-none">
+        {/* Sticky Action Bar (Fixed at top of modal on all screens) */}
+        <div className="sticky top-0 z-50 bg-recime-navy text-white px-4 py-3 sm:px-6 flex items-center justify-between border-b border-white/10 shadow-lg">
           <button
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md hover:bg-white text-recime-navy flex items-center justify-center shadow-lg transition-transform active:scale-90 pointer-events-auto"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white font-bold text-xs transition-transform active:scale-95 shadow-xs"
           >
-            <X className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
+            <span>Voltar</span>
           </button>
 
-          <div className="flex items-center gap-2 pointer-events-auto">
+          <span className="font-serif font-bold text-sm text-white truncate max-w-[160px] sm:max-w-xs text-center">
+            {recipe.title}
+          </span>
+
+          <div className="flex items-center gap-1.5">
             <button
               onClick={handleShare}
-              className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md hover:bg-white text-recime-navy flex items-center justify-center shadow-lg transition-transform active:scale-90"
+              className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-transform active:scale-95"
               title="Compartilhar"
             >
-              <Share2 className="w-4 h-4" />
+              <Share2 className="w-3.5 h-3.5" />
             </button>
 
             <button
               onClick={() => toggleFavorite(recipe.id)}
-              className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md hover:bg-white text-recime-navy flex items-center justify-center shadow-lg transition-transform active:scale-90"
+              className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-transform active:scale-95"
               title="Favoritar"
             >
-              <Heart className={`w-5 h-5 ${recipe.favorite ? 'fill-recime-mango text-recime-mango' : 'text-gray-700'}`} />
+              <Heart className={`w-4 h-4 ${recipe.favorite ? 'fill-recime-mango text-recime-mango' : 'text-white'}`} />
+            </button>
+
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-recime-mango hover:bg-recime-mango-hover flex items-center justify-center text-white transition-transform active:scale-95 shadow-sm"
+              title="Fechar"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -584,6 +598,7 @@ export const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({ recipe, on
                 <button
                   onClick={() => {
                     if (confirm('Tem certeza que deseja excluir esta receita?')) {
+                      onClose();
                       deleteRecipe(recipe.id);
                     }
                   }}
@@ -595,6 +610,17 @@ export const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({ recipe, on
               </div>
             </div>
           )}
+
+          {/* Persistent Bottom Return Button */}
+          <div className="pt-4 border-t border-recime-parchment-border">
+            <button
+              onClick={onClose}
+              className="w-full py-3.5 rounded-2xl bg-recime-navy hover:bg-recime-navy-light text-white font-bold text-sm shadow-md transition-all active:scale-98 flex items-center justify-center gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Voltar para o Livro de Receitas</span>
+            </button>
+          </div>
 
         </div>
       </div>
