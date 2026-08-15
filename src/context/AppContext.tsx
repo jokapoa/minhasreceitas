@@ -126,24 +126,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSyncCodeState(code.toLowerCase().trim());
   };
 
-  // Cloud Sync Handler
+  // Cloud Sync Handler with smart union merge
   const syncNow = useCallback(async () => {
     if (isSyncingRef.current) return;
     isSyncingRef.current = true;
     setSyncStatus('syncing');
 
     try {
-      // 1. Pull from cloud
       const remoteData = await CloudSyncService.pullData();
 
       if (remoteData && remoteData.recipes && remoteData.recipes.length > 0) {
-        // If remote data exists, merge/apply
-        setRecipes(remoteData.recipes);
-        if (remoteData.cookbooks) setCookbooks(remoteData.cookbooks);
-        if (remoteData.mealPlan) setMealPlan(remoteData.mealPlan);
-        if (remoteData.groceryList) setGroceryList(remoteData.groceryList);
+        // Smart merge recipes by ID
+        setRecipes(prevLocal => {
+          const map = new Map<string, Recipe>();
+          // 1. Put all remote recipes
+          remoteData.recipes.forEach((r: Recipe) => map.set(r.id, r));
+          // 2. Put local recipes (if local is newer or unique)
+          prevLocal.forEach(r => {
+            if (!map.has(r.id)) {
+              map.set(r.id, r);
+            }
+          });
+          return Array.from(map.values());
+        });
+
+        if (remoteData.cookbooks && remoteData.cookbooks.length > 0) {
+          setCookbooks(prev => {
+            const map = new Map();
+            remoteData.cookbooks.forEach((c: Cookbook) => map.set(c.id, c));
+            prev.forEach(c => { if (!map.has(c.id)) map.set(c.id, c); });
+            return Array.from(map.values());
+          });
+        }
+
+        if (remoteData.mealPlan) {
+          setMealPlan(remoteData.mealPlan);
+        }
+
+        if (remoteData.groceryList) {
+          setGroceryList(remoteData.groceryList);
+        }
       } else {
-        // If first time or empty, push our local data to create cloud vault
+        // If remote vault is empty, push local state to initialize it
         await CloudSyncService.pushData({
           recipes,
           cookbooks,
@@ -162,20 +186,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [recipes, cookbooks, mealPlan, groceryList]);
 
-  // Initial sync on startup & URL parameter cleanup
+  // Initial sync on startup
   useEffect(() => {
     if (syncCode) {
       syncNow();
     }
   }, [syncCode]);
 
-  // Auto-sync polling every 12 seconds and when window/screen gets focus
+  // Auto-sync polling every 5 seconds and when window/screen gets focus
   useEffect(() => {
     if (!syncCode) return;
 
     const interval = setInterval(() => {
       syncNow();
-    }, 12000);
+    }, 5000);
 
     const onFocus = () => {
       syncNow();

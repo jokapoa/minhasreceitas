@@ -52,8 +52,8 @@ export const SyncModal: React.FC<SyncModalProps> = ({ onClose }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // URL that automatically configures the sync code when opened on iPhone
-  const pairUrl = `${window.location.origin}/?sync=${encodeURIComponent(syncCode)}`;
+  // URL that automatically configures the sync code and vault when opened on iPhone
+  const pairUrl = CloudSyncService.getPairUrl();
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(pairUrl)}&color=131D33&bgcolor=FAF7F2`;
 
   return (
