@@ -12,6 +12,7 @@ import { RecipeDetailModal } from './components/recipe/RecipeDetailModal';
 import { CookingModeModal } from './components/cooking/CookingModeModal';
 import { RecipeImportModal } from './components/recipe/RecipeImportModal';
 import { RecipeFormModal } from './components/recipe/RecipeFormModal';
+import { SyncModal } from './components/auth/SyncModal';
 
 const AppContent: React.FC = () => {
   const { 
@@ -23,7 +24,9 @@ const AppContent: React.FC = () => {
     isCreateModalOpen, 
     setIsCreateModalOpen, 
     isImportModalOpen, 
-    setIsImportModalOpen 
+    setIsImportModalOpen,
+    isSyncModalOpen,
+    setIsSyncModalOpen
   } = useApp();
 
   return (
@@ -71,6 +74,12 @@ const AppContent: React.FC = () => {
       {isCreateModalOpen && (
         <RecipeFormModal
           onClose={() => setIsCreateModalOpen(false)}
+        />
+      )}
+
+      {isSyncModalOpen && (
+        <SyncModal
+          onClose={() => setIsSyncModalOpen(false)}
         />
       )}
 

@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { Recipe, Cookbook, MealPlanItem, GroceryItem, AisleCategory } from '../types/recipe';
 import { defaultRecipes, defaultCookbooks } from '../data/defaultRecipes';
 import type { UnitSystem } from '../utils/unitConverter';
 import { scaleAmount } from '../utils/unitConverter';
+import { CloudSyncService } from '../services/cloudSync';
 
 interface AppContextType {
   recipes: Recipe[];
@@ -49,7 +50,16 @@ interface AppContextType {
   setIsCreateModalOpen: (open: boolean) => void;
   isImportModalOpen: boolean;
   setIsImportModalOpen: (open: boolean) => void;
+  isSyncModalOpen: boolean;
+  setIsSyncModalOpen: (open: boolean) => void;
   
+  // Cloud Sync
+  syncCode: string;
+  setSyncCode: (code: string) => void;
+  syncStatus: 'idle' | 'syncing' | 'synced' | 'error';
+  syncNow: () => Promise<void>;
+  lastSyncedTime: string;
+
   // Search & Filter
   searchQuery: string;
   setSearchQuery: (query: string) => void;
@@ -60,6 +70,21 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Check URL parameter for sync key (ex: ?sync=joka)
+  const [syncCode, setSyncCodeState] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const syncParam = params.get('sync');
+    if (syncParam) {
+      CloudSyncService.setSyncCode(syncParam);
+      return syncParam.toLowerCase().trim();
+    }
+    return CloudSyncService.getSyncCode() || 'joka-receitas';
+  });
+
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [lastSyncedTime, setLastSyncedTime] = useState<string>('');
+  const isSyncingRef = useRef(false);
+
   // Load from localStorage or defaults
   const [recipes, setRecipes] = useState<Recipe[]>(() => {
     const saved = localStorage.getItem('recime_recipes');
@@ -92,24 +117,105 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [cookingRecipe, setCookingRecipe] = useState<Recipe | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todas');
 
-  // Persistence effects
+  const setSyncCode = (code: string) => {
+    CloudSyncService.setSyncCode(code);
+    setSyncCodeState(code.toLowerCase().trim());
+  };
+
+  // Cloud Sync Handler
+  const syncNow = useCallback(async () => {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+    setSyncStatus('syncing');
+
+    try {
+      // 1. Pull from cloud
+      const remoteData = await CloudSyncService.pullData();
+
+      if (remoteData && remoteData.recipes && remoteData.recipes.length > 0) {
+        // If remote data exists, merge/apply
+        setRecipes(remoteData.recipes);
+        if (remoteData.cookbooks) setCookbooks(remoteData.cookbooks);
+        if (remoteData.mealPlan) setMealPlan(remoteData.mealPlan);
+        if (remoteData.groceryList) setGroceryList(remoteData.groceryList);
+      } else {
+        // If first time or empty, push our local data to create cloud vault
+        await CloudSyncService.pushData({
+          recipes,
+          cookbooks,
+          mealPlan,
+          groceryList,
+        });
+      }
+
+      setSyncStatus('synced');
+      setLastSyncedTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    } catch (err) {
+      console.warn('Sync failed:', err);
+      setSyncStatus('error');
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, [recipes, cookbooks, mealPlan, groceryList]);
+
+  // Initial sync on startup & URL parameter cleanup
+  useEffect(() => {
+    if (syncCode) {
+      syncNow();
+    }
+  }, [syncCode]);
+
+  // Auto-sync polling every 12 seconds and when window/screen gets focus
+  useEffect(() => {
+    if (!syncCode) return;
+
+    const interval = setInterval(() => {
+      syncNow();
+    }, 12000);
+
+    const onFocus = () => {
+      syncNow();
+    };
+
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [syncCode, syncNow]);
+
+  // Persistence & Cloud push effects on local change
   useEffect(() => {
     localStorage.setItem('recime_recipes', JSON.stringify(recipes));
+    if (syncCode && !isSyncingRef.current) {
+      CloudSyncService.pushData({ recipes, cookbooks, mealPlan, groceryList });
+    }
   }, [recipes]);
 
   useEffect(() => {
     localStorage.setItem('recime_cookbooks', JSON.stringify(cookbooks));
+    if (syncCode && !isSyncingRef.current) {
+      CloudSyncService.pushData({ recipes, cookbooks, mealPlan, groceryList });
+    }
   }, [cookbooks]);
 
   useEffect(() => {
     localStorage.setItem('recime_mealplan', JSON.stringify(mealPlan));
+    if (syncCode && !isSyncingRef.current) {
+      CloudSyncService.pushData({ recipes, cookbooks, mealPlan, groceryList });
+    }
   }, [mealPlan]);
 
   useEffect(() => {
     localStorage.setItem('recime_grocery', JSON.stringify(groceryList));
+    if (syncCode && !isSyncingRef.current) {
+      CloudSyncService.pushData({ recipes, cookbooks, mealPlan, groceryList });
+    }
   }, [groceryList]);
 
   useEffect(() => {
@@ -136,7 +242,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteRecipe = (id: string) => {
     setRecipes(prev => prev.filter(r => r.id !== id));
-    // Remove from cookbooks & meal plans
     setCookbooks(prev => prev.map(cb => ({
       ...cb,
       recipeIds: cb.recipeIds.filter(rId => rId !== id)
@@ -309,6 +414,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsCreateModalOpen,
         isImportModalOpen,
         setIsImportModalOpen,
+        isSyncModalOpen,
+        setIsSyncModalOpen,
+        syncCode,
+        setSyncCode,
+        syncStatus,
+        syncNow,
+        lastSyncedTime,
         searchQuery,
         setSearchQuery,
         selectedCategory,

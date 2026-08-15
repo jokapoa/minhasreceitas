@@ -10,7 +10,8 @@ import {
   Search, 
   Compass,
   SlidersHorizontal,
-  Flame
+  Flame,
+  Cloud
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -21,6 +22,8 @@ export const Navbar: React.FC = () => {
     setSearchQuery, 
     setIsCreateModalOpen, 
     setIsImportModalOpen,
+    setIsSyncModalOpen,
+    syncCode,
     unitSystem,
     setUnitSystem,
     recipes,
@@ -155,12 +158,27 @@ export const Navbar: React.FC = () => {
           </nav>
 
           {/* Action Buttons & Unit Switcher */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            {/* Cloud Sync Status */}
+            <button
+              onClick={() => setIsSyncModalOpen(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                syncCode 
+                  ? 'bg-recime-navy-light text-recime-parchment border-recime-sage/50 hover:border-recime-sage' 
+                  : 'bg-recime-navy-light text-gray-300 border-white/10 hover:text-white'
+              }`}
+              title="Sincronização em Nuvem (iPhone e PC)"
+            >
+              <div className={`w-2 h-2 rounded-full ${syncCode ? 'bg-recime-sage animate-pulse' : 'bg-gray-400'}`} />
+              <Cloud className="w-3.5 h-3.5 text-recime-corn" />
+              <span className="hidden sm:inline">Nuvem</span>
+            </button>
+
             {/* Unit toggle (Metric / Imperial) */}
             <button
               onClick={() => setUnitSystem(unitSystem === 'metric' ? 'imperial' : 'metric')}
               title={`Sistema de medidas: ${unitSystem === 'metric' ? 'Métrico (g, ml)' : 'Imperial (oz, xíc)'}`}
-              className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-recime-navy-light text-xs font-semibold text-gray-300 hover:text-white hover:bg-recime-navy-light/90 border border-white/10 transition-colors"
+              className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-recime-navy-light text-xs font-semibold text-gray-300 hover:text-white hover:bg-recime-navy-light/90 border border-white/10 transition-colors"
             >
               <SlidersHorizontal className="w-3.5 h-3.5 text-recime-corn" />
               {unitSystem === 'metric' ? 'Métrico' : 'Imperial'}
