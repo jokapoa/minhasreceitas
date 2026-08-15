@@ -353,47 +353,60 @@ export async function extractRecipeFromUrl(url: string): Promise<Partial<Recipe>
     console.warn('Serverless extract call fallback:', err);
   }
 
-  // 3. Smart Culinary Extractor for Instagram / TikTok / Social Links
-  let platform: 'instagram' | 'tiktok' | 'youtube' | 'pinterest' | 'blog' = 'blog';
-  if (url.includes('instagram.com')) platform = 'instagram';
-  else if (url.includes('tiktok.com')) platform = 'tiktok';
-  else if (url.includes('pinterest.com')) platform = 'pinterest';
+  // 3. Instagram Reels & Posts
+  if (url.includes('instagram.com')) {
+    const reelMatch = url.match(/(?:reel|p)\/([a-zA-Z0-9_-]+)/);
+    const reelId = reelMatch ? reelMatch[1] : null;
 
+    return {
+      title: 'Receita do Instagram',
+      description: `Receita extraída do Reel do Instagram. O vídeo original está embutido acima para você acompanhar o preparo.`,
+      image: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=1200&q=80',
+      prepTimeMinutes: 15,
+      cookTimeMinutes: 25,
+      servings: 4,
+      difficulty: 'Fácil',
+      cuisine: 'Gourmet',
+      category: 'Jantar',
+      tags: ['Instagram', 'Vídeo', 'Gourmet', 'Favorito'],
+      sourceUrl: url,
+      sourcePlatform: 'instagram',
+      videoEmbedUrl: reelId ? `https://www.instagram.com/reel/${reelId}/embed` : undefined,
+      author: '@chef_instagram',
+      rating: 5.0,
+      favorite: true,
+      ingredients: [
+        { id: 'ing-ig-1', name: 'Ingredientes principais conforme o vídeo', amount: 1, unit: 'porção', category: 'Mercearia & Grãos' },
+        { id: 'ing-ig-2', name: 'Azeite de oliva extra virgem', amount: 2, unit: 'colheres de sopa', category: 'Mercearia & Grãos' },
+        { id: 'ing-ig-3', name: 'Alho e cebola picados', amount: 1, unit: 'unidade', category: 'Hortifrúti & Frutas' },
+        { id: 'ing-ig-4', name: 'Temperos e ervas a gosto', amount: 1, unit: 'pitada', category: 'Temperos & Molhos' },
+      ],
+      instructions: [
+        { step: 1, title: 'Assistir ao Vídeo', instruction: 'Acompanhe o vídeo do Reel embutido acima para conferir as técnicas e ponto exato dos ingredientes.', timerSeconds: 300 },
+        { step: 2, title: 'Modo de Preparo', instruction: 'Prepare conforme demonstrado no Reel e sirva ainda quente.', timerSeconds: 600 },
+      ],
+    };
+  }
+
+  // 4. Fallback for any other general URL
   return {
-    title: 'Receita Especial do Instagram',
-    description: `Receita extraída automaticamente do post em ${url}. Todos os ingredientes e modo de preparo foram estruturados pelo assistente de culinária.`,
-    image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1200&q=80',
+    title: 'Receita Importada da Web',
+    description: `Receita extraída a partir de ${url}.`,
+    image: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=1200&q=80',
     prepTimeMinutes: 15,
-    cookTimeMinutes: 25,
+    cookTimeMinutes: 20,
     servings: 4,
     difficulty: 'Fácil',
-    cuisine: 'Contemporânea',
+    cuisine: 'Gourmet',
     category: 'Jantar',
-    tags: ['Instagram', 'Gourmet', 'Prático', 'Favorito'],
+    tags: ['Importado', 'Web'],
     sourceUrl: url,
-    sourcePlatform: platform,
-    author: platform === 'instagram' ? '@chef_instagram' : '@tiktok_culinaria',
-    rating: 5.0,
-    favorite: true,
-    nutrition: {
-      calories: 420,
-      protein: 28,
-      carbs: 35,
-      fat: 16,
-    },
+    sourcePlatform: 'blog',
     ingredients: [
-      { id: 'ing-ig-1', name: 'Ingrediente principal (Proteína / Massa / Vegetais)', amount: 500, unit: 'g', category: 'Carnes, Peixes & Aves' },
-      { id: 'ing-ig-2', name: 'Azeite de oliva extra virgem', amount: 2, unit: 'colheres de sopa', category: 'Mercearia & Grãos' },
-      { id: 'ing-ig-3', name: 'Alho picado', amount: 2, unit: 'dentes', category: 'Hortifrúti & Frutas' },
-      { id: 'ing-ig-4', name: 'Cebola picadinha', amount: 1, unit: 'unidade', category: 'Hortifrúti & Frutas' },
-      { id: 'ing-ig-5', name: 'Sal refinado e Pimenta-do-reino', amount: 1, unit: 'pitada', category: 'Temperos & Molhos' },
-      { id: 'ing-ig-6', name: 'Ervas frescas (manjericão ou cheiro-verde)', amount: 1, unit: 'punhado', category: 'Hortifrúti & Frutas' },
+      { id: 'ing-1', name: 'Ingredientes principais da receita', amount: 1, unit: 'unidade', category: 'Mercearia & Grãos' }
     ],
     instructions: [
-      { step: 1, title: 'Separação e Higienização', instruction: 'Separe e higienize todos os ingredientes na bancada de trabalho.', timerSeconds: 300 },
-      { step: 2, title: 'Refogar a Base Aromática', instruction: 'Em uma panela ou frigideira aquecida com o azeite de oliva, refogue a cebola e o alho picados até dourarem suavemente.', timerSeconds: 240 },
-      { step: 3, title: 'Cozimento Principal', instruction: 'Adicione os ingredientes principais, tempere com sal e pimenta a gosto e cozinhe em fogo médio até atingir o ponto desejado.', timerSeconds: 900 },
-      { step: 4, title: 'Finalização e Servir', instruction: 'Finalize com as ervas frescas picadas por cima e sirva ainda quente.', timerSeconds: 60 },
-    ],
+      { step: 1, instruction: 'Siga o passo a passo conforme a fonte original.', timerSeconds: 300 }
+    ]
   };
 }
