@@ -1,0 +1,16 @@
+{
+  "short_name": "ReciMe",
+  "name": "ReciMe - The Ultimate Cooking App",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#FAF7F2",
+  "theme_color": "#131D33",
+  "display": "standalone",
+  "orientation": "portrait"
+}

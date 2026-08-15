@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@theme {
+  --color-recime-navy: #131D33;
+  --color-recime-navy-light: #1C2B4B;
+  --color-recime-navy-dark: #0C1322;
+  --color-recime-mango: #E36338;
+  --color-recime-mango-hover: #CE542C;
+  --color-recime-mango-light: #FFF1EC;
+  --color-recime-parchment: #FAF7F2;
+  --color-recime-parchment-subtle: #F4EFE6;
+  --color-recime-parchment-border: #E8E1D3;
+  --color-recime-corn: #F4B53F;
+  --color-recime-corn-light: #FEF7E6;
+  --color-recime-sage: #4E7D63;
+  --color-recime-sage-light: #EEF5F1;
+  --color-recime-charcoal: #1A1C1E;
+  --color-recime-muted: #68707C;
+
+  --font-serif: "Fraunces", "Playfair Display", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", Inter, system-ui, sans-serif;
+}
+
+body {
+  background-color: #FAF7F2;
+  color: #1A1C1E;
+  font-family: "Plus Jakarta Sans", Inter, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Custom Smooth Transitions and Micro-interactions */
+.recipe-card-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.recipe-card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 32px rgba(19, 29, 51, 0.08);
+}
+
+/* Custom modern scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F4EFE6;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D8D0C0;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #C4BBAA;
+}
+
+/* Glass & frosted backgrounds */
+.glass-parchment {
+  background: rgba(250, 247, 242, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-dark {
+  background: rgba(19, 29, 51, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
