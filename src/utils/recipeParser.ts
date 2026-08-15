@@ -98,11 +98,14 @@ export function parseIngredientLine(line: string, index: number): Ingredient {
   };
 }
 
+import { cleanInstagramCaption, extractSmartRecipeTitle } from './instagramCleaner';
+
 // Parse free-form pasted text into a structured Recipe
 export function parseRawRecipeText(text: string): Partial<Recipe> {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const cleanedText = cleanInstagramCaption(text);
+  const lines = cleanedText.split('\n').map(l => l.trim()).filter(Boolean);
   
-  let title = 'Minha Receita Importada';
+  let title = extractSmartRecipeTitle(cleanedText, 'Minha Receita Importada');
   let servings = 4;
   let prepTimeMinutes = 15;
   let cookTimeMinutes = 20;
@@ -115,12 +118,6 @@ export function parseRawRecipeText(text: string): Partial<Recipe> {
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
-    // Check if line designates title
-    if (i === 0 && !line.toLowerCase().startsWith('ingrediente') && !line.toLowerCase().startsWith('modo')) {
-      title = line.replace(/^(Receita:\s*|Título:\s*)/i, '').trim();
-      continue;
-    }
     
     // Check section transitions
     if (/^(ingredientes|ingrediente|ingredients):?$/i.test(line)) {

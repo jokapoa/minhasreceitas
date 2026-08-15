@@ -108,19 +108,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           // Extract og:description — contains the FULL caption with ingredients
           const ogDescMatch = igHtml.match(/property=["']og:description["'][^>]*content=["']([^"']+)/i);
-          let caption = ogDescMatch ? decodeHtmlEntities(ogDescMatch[1]) : '';
-          // Remove the "X likes, Y comments - username on Date:" prefix
-          caption = caption.replace(/^\d[\d,.]+\s*likes?,\s*\d[\d,.]+\s*comments?\s*-\s*\w+\s+on\s+\w+\s+\d+,\s*\d+:\s*"?/i, '').replace(/"?\s*$/, '');
+          let rawCaption = ogDescMatch ? decodeHtmlEntities(ogDescMatch[1]) : '';
+
+          // Clean Instagram social header (likes, comments, date, usernames with dots/hyphens)
+          let caption = rawCaption.replace(/^[\d,.\s\w\W]+?(?:likes?|curtidas?|comments?|comentários?)[^:\n]*:\s*"?/i, '');
+          caption = caption.replace(/^\d[\d,.]+\s*(?:likes?|curtidas?|comments?|comentários?)[^\n]*\n?/i, '');
+          caption = caption.replace(/^"/, '').replace(/"\s*$/, '').trim();
 
           // Extract og:title — contains author + recipe name
           const ogTitleMatch = igHtml.match(/property=["']og:title["'][^>]*content=["']([^"']+)/i);
           const rawTitle = ogTitleMatch ? decodeHtmlEntities(ogTitleMatch[1]) : '';
-          // Parse author from "Author Name on Instagram: ..." 
           const titleParts = rawTitle.match(/^(.+?)\s+on\s+Instagram:\s*"?(.+)"?$/i);
           const author = titleParts ? titleParts[1] : '';
-          // Extract recipe title from the first line of caption
-          const firstLine = caption.split('\n').find(l => l.trim().length > 3) || '';
-          const recipeTitle = firstLine.replace(/^[✨🍳🔥💥⭐❤️🌟]+\s*/, '').trim();
+
+          // Smart title extraction from cleaned caption
+          const lines = caption.split('\n').map(l => l.trim()).filter(Boolean);
+          let recipeTitle = '';
+
+          for (const line of lines) {
+            if (/(?:likes?|curtidas?|comments?|comentários?)\s*-/i.test(line)) continue;
+            const cleaned = line.replace(/^[\p{Emoji}\u200d\uFE0F\s*•\-#️⃣✨🍳🔥💥⭐❤️🌟📌👉👇💡🥗🍰🍕🥪🥣🍪🍩🥞🥩🍖🍗🥑🥦🍅🥒🧀🥚]+\s*/u, '').trim();
+            if (!cleaned || /^(ingredientes|ingrediente|modo de preparo|instruções|preparo|passos|rendimento|tempo):?$/i.test(cleaned)) continue;
+            if (/^\d+[\s\/\.,\d]*(?:g|kg|ml|l|xícara|xicara|colher|colheres|scoop|pitada|unidade|unidades|fatia|fatias|dente|dentes|folha|folhas|ovo|ovos)\b/i.test(cleaned)) continue;
+
+            if (cleaned.includes(':')) {
+              const parts = cleaned.split(':');
+              const candidate = parts[parts.length - 1].trim();
+              if (candidate.length >= 3 && candidate.length <= 60 && !candidate.toLowerCase().startsWith('http')) {
+                recipeTitle = candidate.replace(/["!?:.]/g, '').trim();
+                break;
+              }
+            }
+
+            if (cleaned.length >= 4 && cleaned.length <= 60 && cleaned === cleaned.toUpperCase() && /[A-Z]/.test(cleaned)) {
+              recipeTitle = cleaned.replace(/["!?:.]/g, '').trim();
+              break;
+            }
+
+            if (!/^(salva|salve|curte|compartilha|marca|olha|veja|vem aprender|confira)\b/i.test(cleaned) && cleaned.length >= 3 && cleaned.length <= 70) {
+              recipeTitle = cleaned.replace(/["!?:.]/g, '').trim();
+              break;
+            }
+          }
+
+          if (!recipeTitle) {
+            recipeTitle = 'Receita do Instagram';
+          }
 
           // Extract og:image — real thumbnail from Instagram CDN
           const ogImageMatch = igHtml.match(/property=["']og:image["'][^>]*content=["']([^"']+)/i);
@@ -128,7 +161,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           return res.status(200).json({
             platform: 'instagram',
-            title: recipeTitle || 'Receita do Instagram',
+            title: recipeTitle,
             description: caption.substring(0, 500),
             image,
             caption,
