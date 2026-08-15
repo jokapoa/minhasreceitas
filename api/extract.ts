@@ -75,7 +75,98 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 2. Fetch server-side with standard browser User-Agent
+    // 2. Check if Instagram
+    const igReelMatch = url.match(/instagram\.com\/(?:reel|p)\/([a-zA-Z0-9_-]+)/);
+    if (igReelMatch) {
+      const reelId = igReelMatch[1];
+      const embedUrl = `https://www.instagram.com/reel/${reelId}/embed/captioned/`;
+
+      try {
+        const igRes = await fetch(embedUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.7',
+          },
+        });
+
+        if (igRes.ok) {
+          const igHtml = await igRes.text();
+
+          // Strategy 1: og:description meta tag (often has the caption)
+          const ogDescMatch = igHtml.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i) ||
+                              igHtml.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:description["']/i);
+
+          // Strategy 2: The caption text inside the embed HTML
+          const captionMatch = igHtml.match(/<div\s+class="Caption"[^>]*>[\s\S]*?<div\s+class="CaptionUsername"[^>]*>[\s\S]*?<\/div>([\s\S]*?)<\/div>/i);
+
+          // Strategy 3: blockquote text content
+          const blockquoteMatch = igHtml.match(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/i);
+
+          // Strategy 4: data in embedded JSON/script
+          const scriptDataMatch = igHtml.match(/"caption":\s*\{[^}]*"text":\s*"([^"]+)"/i) ||
+                                  igHtml.match(/"edge_media_to_caption"[\s\S]*?"text":\s*"([^"]+)"/i);
+
+          // Strategy 5: alternate meta description
+          const metaDescMatch = igHtml.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
+
+          // Collect the best caption
+          let caption = '';
+          if (scriptDataMatch && scriptDataMatch[1] && scriptDataMatch[1].length > 20) {
+            caption = scriptDataMatch[1].replace(/\\n/g, '\n').replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+          } else if (ogDescMatch && ogDescMatch[1] && ogDescMatch[1].length > 30 && !ogDescMatch[1].includes('Instagram')) {
+            caption = ogDescMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+          } else if (captionMatch && captionMatch[1]) {
+            caption = captionMatch[1].replace(/<[^>]+>/g, '').trim();
+          } else if (blockquoteMatch && blockquoteMatch[1]) {
+            caption = blockquoteMatch[1].replace(/<[^>]+>/g, '').trim();
+          } else if (metaDescMatch && metaDescMatch[1] && metaDescMatch[1].length > 30) {
+            caption = metaDescMatch[1];
+          }
+
+          // Extract title from og:title
+          const ogTitleMatch = igHtml.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i) ||
+                               igHtml.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:title["']/i);
+
+          // Extract image from og:image
+          const ogImageMatch = igHtml.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i) ||
+                               igHtml.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i);
+
+          // Extract author from caption @mentions or profile link
+          const authorMatch = caption.match(/@([\w.]+)/) || igHtml.match(/"username":\s*"([^"]+)"/);
+
+          const title = ogTitleMatch ? ogTitleMatch[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'") : '';
+          const image = ogImageMatch ? ogImageMatch[1] : '';
+          const author = authorMatch ? `@${authorMatch[1]}` : '';
+
+          return res.status(200).json({
+            platform: 'instagram',
+            title: title || 'Receita do Instagram',
+            description: caption ? caption.substring(0, 500) : '',
+            image,
+            caption,
+            videoEmbedUrl: `https://www.instagram.com/reel/${reelId}/embed`,
+            author,
+            sourceUrl: url,
+          });
+        }
+      } catch (igErr: any) {
+        console.warn('Instagram embed fetch failed:', igErr.message);
+      }
+
+      // If embed fetch failed, return minimal data with embed URL
+      return res.status(200).json({
+        platform: 'instagram',
+        title: 'Receita do Instagram',
+        description: '',
+        caption: '',
+        image: '',
+        videoEmbedUrl: `https://www.instagram.com/reel/${reelId}/embed`,
+        sourceUrl: url,
+      });
+    }
+
+    // 3. Fetch server-side with standard browser User-Agent
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

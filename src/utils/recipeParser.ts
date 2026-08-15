@@ -325,6 +325,79 @@ export async function extractRecipeFromUrl(url: string): Promise<Partial<Recipe>
     const res = await fetch(`/api/extract?url=${encodeURIComponent(url)}`);
     if (res.ok) {
       const data = await res.json();
+
+      // 2a. Instagram with caption — parse real recipe from the caption text
+      if (data.platform === 'instagram' && data.caption && data.caption.length > 20) {
+        const parsed = parseRawRecipeText(data.caption);
+        const reelMatch = url.match(/(?:reel|p)\/([a-zA-Z0-9_-]+)/);
+        const reelId = reelMatch ? reelMatch[1] : null;
+
+        return {
+          title: parsed.title || data.title || 'Receita do Instagram',
+          description: parsed.description || data.description || data.caption.substring(0, 300),
+          image: data.image || 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=1200&q=80',
+          prepTimeMinutes: parsed.prepTimeMinutes || 15,
+          cookTimeMinutes: parsed.cookTimeMinutes || 25,
+          servings: parsed.servings || 4,
+          difficulty: parsed.difficulty || 'Fácil',
+          cuisine: parsed.cuisine || 'Gourmet',
+          category: parsed.category || 'Jantar',
+          tags: ['Instagram', 'Vídeo', ...(parsed.tags || [])],
+          sourceUrl: url,
+          sourcePlatform: 'instagram',
+          videoEmbedUrl: data.videoEmbedUrl || (reelId ? `https://www.instagram.com/reel/${reelId}/embed` : undefined),
+          author: data.author || '@chef_instagram',
+          rating: 5.0,
+          favorite: true,
+          ingredients: parsed.ingredients && parsed.ingredients.length > 0
+            ? parsed.ingredients
+            : [
+                { id: 'ing-ig-1', name: 'Ingredientes conforme o vídeo', amount: 1, unit: 'porção', category: 'Mercearia & Grãos' },
+              ],
+          instructions: parsed.instructions && parsed.instructions.length > 0
+            ? parsed.instructions
+            : [
+                { step: 1, title: 'Assistir ao Vídeo', instruction: 'Acompanhe o vídeo do Reel para ver as técnicas e ingredientes.', timerSeconds: 300 },
+              ],
+        };
+      }
+
+      // 2b. Instagram without caption — just embed the video
+      if (data.platform === 'instagram') {
+        const reelMatch = url.match(/(?:reel|p)\/([a-zA-Z0-9_-]+)/);
+        const reelId = reelMatch ? reelMatch[1] : null;
+
+        return {
+          title: data.title || 'Receita do Instagram',
+          description: data.description || 'Receita do Reel do Instagram. O vídeo original está incorporado para você acompanhar o preparo.',
+          image: data.image || 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=1200&q=80',
+          prepTimeMinutes: 15,
+          cookTimeMinutes: 25,
+          servings: 4,
+          difficulty: 'Fácil',
+          cuisine: 'Gourmet',
+          category: 'Jantar',
+          tags: ['Instagram', 'Vídeo', 'Gourmet'],
+          sourceUrl: url,
+          sourcePlatform: 'instagram',
+          videoEmbedUrl: data.videoEmbedUrl || (reelId ? `https://www.instagram.com/reel/${reelId}/embed` : undefined),
+          author: data.author || '@chef_instagram',
+          rating: 5.0,
+          favorite: true,
+          ingredients: [
+            { id: 'ing-ig-1', name: 'Ingredientes principais conforme o vídeo', amount: 1, unit: 'porção', category: 'Mercearia & Grãos' },
+            { id: 'ing-ig-2', name: 'Azeite de oliva extra virgem', amount: 2, unit: 'colheres de sopa', category: 'Mercearia & Grãos' },
+            { id: 'ing-ig-3', name: 'Alho e cebola picados', amount: 1, unit: 'unidade', category: 'Hortifrúti & Frutas' },
+            { id: 'ing-ig-4', name: 'Temperos e ervas a gosto', amount: 1, unit: 'pitada', category: 'Temperos & Molhos' },
+          ],
+          instructions: [
+            { step: 1, title: 'Assistir ao Vídeo', instruction: 'Acompanhe o vídeo do Reel incorporado acima para ver as técnicas e ponto dos ingredientes.', timerSeconds: 300 },
+            { step: 2, title: 'Modo de Preparo', instruction: 'Prepare conforme demonstrado no Reel e sirva ainda quente.', timerSeconds: 600 },
+          ],
+        };
+      }
+
+      // 2c. Blog/other with JSON-LD structured data
       if (data.ingredients && data.ingredients.length > 0) {
         return {
           title: data.title,
