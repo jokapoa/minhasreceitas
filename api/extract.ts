@@ -79,82 +79,69 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const igReelMatch = url.match(/instagram\.com\/(?:reel|p)\/([a-zA-Z0-9_-]+)/);
     if (igReelMatch) {
       const reelId = igReelMatch[1];
-      const embedUrl = `https://www.instagram.com/reel/${reelId}/embed/captioned/`;
+      // Clean URL without tracking params
+      const cleanUrl = `https://www.instagram.com/reel/${reelId}/`;
 
       try {
-        const igRes = await fetch(embedUrl, {
+        // KEY INSIGHT: Instagram serves full og:tags when User-Agent is a simple crawler (curl)
+        // but returns empty JS shell when User-Agent simulates Chrome/browser.
+        const igRes = await fetch(cleanUrl, {
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.7',
+            'User-Agent': 'curl/7.68.0',
+            'Accept': '*/*',
           },
         });
 
         if (igRes.ok) {
           const igHtml = await igRes.text();
 
-          // Strategy 1: og:description meta tag (often has the caption)
-          const ogDescMatch = igHtml.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']+)["']/i) ||
-                              igHtml.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:description["']/i);
+          // Helper to decode HTML entities (&#xf3; → ó, &quot; → ", etc.)
+          const decodeHtmlEntities = (str: string) =>
+            str
+              .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+              .replace(/&#(\d+);/g, (_, dec: string) => String.fromCharCode(parseInt(dec, 10)))
+              .replace(/&amp;/g, '&')
+              .replace(/&quot;/g, '"')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&#39;/g, "'");
 
-          // Strategy 2: The caption text inside the embed HTML
-          const captionMatch = igHtml.match(/<div\s+class="Caption"[^>]*>[\s\S]*?<div\s+class="CaptionUsername"[^>]*>[\s\S]*?<\/div>([\s\S]*?)<\/div>/i);
+          // Extract og:description — contains the FULL caption with ingredients
+          const ogDescMatch = igHtml.match(/property=["']og:description["'][^>]*content=["']([^"']+)/i);
+          let caption = ogDescMatch ? decodeHtmlEntities(ogDescMatch[1]) : '';
+          // Remove the "X likes, Y comments - username on Date:" prefix
+          caption = caption.replace(/^\d[\d,.]+\s*likes?,\s*\d[\d,.]+\s*comments?\s*-\s*\w+\s+on\s+\w+\s+\d+,\s*\d+:\s*"?/i, '').replace(/"?\s*$/, '');
 
-          // Strategy 3: blockquote text content
-          const blockquoteMatch = igHtml.match(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/i);
+          // Extract og:title — contains author + recipe name
+          const ogTitleMatch = igHtml.match(/property=["']og:title["'][^>]*content=["']([^"']+)/i);
+          const rawTitle = ogTitleMatch ? decodeHtmlEntities(ogTitleMatch[1]) : '';
+          // Parse author from "Author Name on Instagram: ..." 
+          const titleParts = rawTitle.match(/^(.+?)\s+on\s+Instagram:\s*"?(.+)"?$/i);
+          const author = titleParts ? titleParts[1] : '';
+          // Extract recipe title from the first line of caption
+          const firstLine = caption.split('\n').find(l => l.trim().length > 3) || '';
+          const recipeTitle = firstLine.replace(/^[✨🍳🔥💥⭐❤️🌟]+\s*/, '').trim();
 
-          // Strategy 4: data in embedded JSON/script
-          const scriptDataMatch = igHtml.match(/"caption":\s*\{[^}]*"text":\s*"([^"]+)"/i) ||
-                                  igHtml.match(/"edge_media_to_caption"[\s\S]*?"text":\s*"([^"]+)"/i);
-
-          // Strategy 5: alternate meta description
-          const metaDescMatch = igHtml.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
-
-          // Collect the best caption
-          let caption = '';
-          if (scriptDataMatch && scriptDataMatch[1] && scriptDataMatch[1].length > 20) {
-            caption = scriptDataMatch[1].replace(/\\n/g, '\n').replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
-          } else if (ogDescMatch && ogDescMatch[1] && ogDescMatch[1].length > 30 && !ogDescMatch[1].includes('Instagram')) {
-            caption = ogDescMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
-          } else if (captionMatch && captionMatch[1]) {
-            caption = captionMatch[1].replace(/<[^>]+>/g, '').trim();
-          } else if (blockquoteMatch && blockquoteMatch[1]) {
-            caption = blockquoteMatch[1].replace(/<[^>]+>/g, '').trim();
-          } else if (metaDescMatch && metaDescMatch[1] && metaDescMatch[1].length > 30) {
-            caption = metaDescMatch[1];
-          }
-
-          // Extract title from og:title
-          const ogTitleMatch = igHtml.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i) ||
-                               igHtml.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:title["']/i);
-
-          // Extract image from og:image
-          const ogImageMatch = igHtml.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i) ||
-                               igHtml.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i);
-
-          // Extract author from caption @mentions or profile link
-          const authorMatch = caption.match(/@([\w.]+)/) || igHtml.match(/"username":\s*"([^"]+)"/);
-
-          const title = ogTitleMatch ? ogTitleMatch[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'") : '';
-          const image = ogImageMatch ? ogImageMatch[1] : '';
-          const author = authorMatch ? `@${authorMatch[1]}` : '';
+          // Extract og:image — real thumbnail from Instagram CDN
+          const ogImageMatch = igHtml.match(/property=["']og:image["'][^>]*content=["']([^"']+)/i);
+          const image = ogImageMatch ? decodeHtmlEntities(ogImageMatch[1]) : '';
 
           return res.status(200).json({
             platform: 'instagram',
-            title: title || 'Receita do Instagram',
-            description: caption ? caption.substring(0, 500) : '',
+            title: recipeTitle || 'Receita do Instagram',
+            description: caption.substring(0, 500),
             image,
             caption,
             videoEmbedUrl: `https://www.instagram.com/reel/${reelId}/embed`,
-            author,
+            author: author || '@instagram',
             sourceUrl: url,
           });
         }
       } catch (igErr: any) {
-        console.warn('Instagram embed fetch failed:', igErr.message);
+        console.warn('Instagram fetch failed:', igErr.message);
       }
 
-      // If embed fetch failed, return minimal data with embed URL
+      // If fetch failed, return minimal data with embed URL
       return res.status(200).json({
         platform: 'instagram',
         title: 'Receita do Instagram',
