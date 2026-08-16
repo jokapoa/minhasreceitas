@@ -10,9 +10,10 @@ import {
   Search, 
   Compass,
   SlidersHorizontal,
-  Flame,
   Cloud
 } from 'lucide-react';
+
+import { JKLogo } from '../brand/JKLogo';
 
 export const Navbar: React.FC = () => {
   const { 
@@ -44,24 +45,9 @@ export const Navbar: React.FC = () => {
           {/* Logo & Brand */}
           <div 
             onClick={() => setActiveTab('explore')}
-            className="flex items-center gap-3 cursor-pointer group select-none"
+            className="cursor-pointer group"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-recime-mango to-recime-corn flex items-center justify-center shadow-glow group-hover:scale-105 transition-transform duration-200">
-              <Flame className="w-6 h-6 text-white fill-white" />
-            </div>
-            <div className="flex flex-col">
-              <div className="flex items-center gap-1.5">
-                <span className="font-serif font-bold text-2xl tracking-tight text-recime-parchment">
-                  Reci<span className="text-recime-mango">Me</span>
-                </span>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-recime-corn text-recime-navy font-sans">
-                  PRO
-                </span>
-              </div>
-              <span className="text-[11px] text-gray-300 font-medium hidden sm:inline">
-                The Ultimate Cooking App
-              </span>
-            </div>
+            <JKLogo size="md" />
           </div>
 
           {/* Desktop Search Bar */}

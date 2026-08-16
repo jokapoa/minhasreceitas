@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Flame, Download, Upload, Heart } from 'lucide-react';
+import { Download, Upload, Heart } from 'lucide-react';
+import { JKLogo } from '../brand/JKLogo';
 
 export const Footer: React.FC = () => {
   const { recipes, cookbooks, mealPlan, groceryList } = useApp();
@@ -54,17 +55,7 @@ export const Footer: React.FC = () => {
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-8 border-b border-white/10">
           
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-recime-mango to-recime-corn flex items-center justify-center">
-              <Flame className="w-5 h-5 text-white fill-white" />
-            </div>
-            <div>
-              <span className="font-serif font-bold text-xl tracking-tight text-recime-parchment">
-                Reci<span className="text-recime-mango">Me</span>
-              </span>
-              <p className="text-xs text-gray-400">
-                O aplicativo definitivo para colecionar, planejar e cozinhar.
-              </p>
-            </div>
+            <JKLogo size="sm" />
           </div>
 
           {/* Backup Data Export/Import */}
@@ -98,7 +89,7 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-400 gap-3">
-          <p>© 2026 ReciMe App • Inspirado na experiência mobile e web do ReciMe.</p>
+          <p>© {new Date().getFullYear()} Minhas Receitas • Criado por Jonas Kaffka (JK).</p>
           <div className="flex items-center gap-1 text-gray-300 font-medium">
             <span>Feito com</span>
             <Heart className="w-3.5 h-3.5 text-recime-mango fill-recime-mango inline" />

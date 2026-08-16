@@ -1,11 +1,12 @@
 {
-  "short_name": "ReciMe",
-  "name": "ReciMe - The Ultimate Cooking App",
+  "short_name": "Minhas Receitas",
+  "name": "Minhas Receitas • JK (Jonas Kaffka)",
   "icons": [
     {
-      "src": "/favicon.svg",
-      "type": "image/svg+xml",
-      "sizes": "192x192 512x512"
+      "src": "/logo-jk.jpg",
+      "type": "image/jpeg",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
     }
   ],
   "start_url": "/",
