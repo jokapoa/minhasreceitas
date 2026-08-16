@@ -1,4 +1,5 @@
 import type { Ingredient, InstructionStep, Recipe, AisleCategory, RecipeCategory } from '../types/recipe';
+import { cleanInstagramCaption, extractSmartRecipeTitle } from './instagramCleaner';
 
 // Helper to categorize ingredients based on keywords
 export function categorizeIngredient(name: string): AisleCategory {
@@ -138,19 +139,106 @@ export function parseIngredientLine(line: string, index: number): Ingredient {
   };
 }
 
-import { cleanInstagramCaption, extractSmartRecipeTitle } from './instagramCleaner';
+// Infer dynamic metadata (time, servings, culinary tags, calories) from recipe content
+export function inferRecipeMetadata(
+  title: string, 
+  caption: string, 
+  instructions: InstructionStep[] = []
+): { servings: number; prepTimeMinutes: number; cookTimeMinutes: number; category: RecipeCategory; tags: string[]; calories?: number } {
+  const fullText = `${title} ${caption} ${instructions.map(i => i.instruction).join(' ')}`.toLowerCase();
+
+  // 1. Servings
+  let servings = 2;
+  const servingsMatch = fullText.match(/(?:rende|rendimento|porções|porcoes|serve|servings?):\s*(?:aproximadamente\s*)?(\d+)(?:\s*a\s*(\d+))?/i) ||
+                        fullText.match(/(\d+)(?:\s*a\s*(\d+))?\s*(?:porções|porcoes|unidades|fatias)/i);
+  if (servingsMatch) {
+    servings = parseInt(servingsMatch[2] || servingsMatch[1], 10);
+  } else if (/vitamina|shake|smoothie|suco|café|cafe|caneca|individual|1 pessoa/i.test(fullText)) {
+    servings = 1;
+  } else if (/pãozinho|paozinho|crepioca|omelete|panqueca/i.test(fullText)) {
+    servings = 1;
+  } else if (/bolo|torta|mousse|pudim|travessa|assadeira/i.test(fullText)) {
+    servings = 6;
+  } else if (/almoço|jantar|frango|carne|arroz|peixe|feijoada/i.test(fullText)) {
+    servings = 4;
+  }
+
+  // 2. Prep & Cook Time
+  let prepTimeMinutes = 10;
+  let cookTimeMinutes = 10;
+
+  const airfryerMatch = fullText.match(/airfryer[^\d]*(\d+)\s*min/i);
+  const fornoMatch = fullText.match(/forno[^\d]*(\d+)\s*min/i);
+
+  if (/vitamina|shake|smoothie|suco/i.test(fullText)) {
+    prepTimeMinutes = 5;
+    cookTimeMinutes = 0;
+  } else if (/micro-?ondas|caneca|em minutos|minutos/i.test(fullText) && !fornoMatch) {
+    prepTimeMinutes = 3;
+    cookTimeMinutes = 3;
+  } else if (airfryerMatch) {
+    prepTimeMinutes = 5;
+    cookTimeMinutes = parseInt(airfryerMatch[1], 10);
+  } else if (fornoMatch) {
+    prepTimeMinutes = 15;
+    cookTimeMinutes = parseInt(fornoMatch[1], 10);
+  } else if (/geladeira|freezer|congelador/i.test(fullText)) {
+    prepTimeMinutes = 15;
+    cookTimeMinutes = 15;
+  }
+
+  // 3. Category
+  let category: RecipeCategory = 'Jantar';
+  if (/mousse|bolo|doce|sobremesa|chocolate|pudim|cookie|brigadeiro/i.test(fullText)) {
+    category = 'Sobremesa';
+  } else if (/vitamina|shake|smoothie|suco|bebida|drink/i.test(fullText)) {
+    category = 'Bebidas & Smoothies';
+  } else if (/café|cafe|panqueca|waffle|omelete|tapioca|crepioca/i.test(fullText)) {
+    category = 'Café da Manhã';
+  } else if (/salada|bowl/i.test(fullText)) {
+    category = 'Saladas & Bowls';
+  } else if (/lanche|pãozinho|paozinho|snack|tostex/i.test(fullText)) {
+    category = 'Lanches & Aperitivos';
+  } else if (/almoço|almoco/i.test(fullText)) {
+    category = 'Almoço';
+  }
+
+  // 4. Tags
+  const tags = new Set<string>();
+  if (/sem açúcar|sem acucar|zero açúcar|zero acucar|zeroacucar|semacucar/i.test(fullText)) tags.add('Sem Açúcar');
+  if (/fit|saudável|saudavel|fitness|emagrecer|engordar|ganhodepeso/i.test(fullText)) tags.add('Fit');
+  if (/whey|proteína|proteina|proteica|proteico|hipertrofia/i.test(fullText)) tags.add('Proteico');
+  if (/rápido|rapido|em minutos|fácil|facil|prático|pratico/i.test(fullText)) tags.add('Rápido');
+  if (/vitamina|shake|smoothie/i.test(fullText)) tags.add('Bebida');
+  if (/café|cafe/i.test(fullText)) tags.add('Café da Manhã');
+  if (/mousse|bolo|sobremesa/i.test(fullText)) tags.add('Sobremesa');
+  if (/lanche|pãozinho|paozinho|crepioca/i.test(fullText)) tags.add('Lanche');
+  if (/low carb|lowcarb/i.test(fullText)) tags.add('Low Carb');
+  if (/vegano|vegan/i.test(fullText)) tags.add('Vegano');
+
+  // 5. Calories
+  let calories: number | undefined = undefined;
+  const calMatch = fullText.match(/(\d{2,4})\s*(?:kcal|calorias|cal)\b/i);
+  if (calMatch) {
+    calories = parseInt(calMatch[1], 10);
+  }
+
+  return {
+    servings,
+    prepTimeMinutes,
+    cookTimeMinutes,
+    category,
+    tags: Array.from(tags).slice(0, 4),
+    calories,
+  };
+}
 
 // Parse free-form pasted text into a structured Recipe
 export function parseRawRecipeText(text: string): Partial<Recipe> {
   const cleanedText = cleanInstagramCaption(text);
   const lines = cleanedText.split('\n').map(l => l.trim()).filter(Boolean);
   
-  let title = extractSmartRecipeTitle(cleanedText, 'Minha Receita Importada');
-  let servings = 4;
-  let prepTimeMinutes = 15;
-  let cookTimeMinutes = 20;
-  let category: RecipeCategory = 'Jantar';
-  
+  const title = extractSmartRecipeTitle(cleanedText, 'Minha Receita Importada');
   const ingredients: Ingredient[] = [];
   const instructions: InstructionStep[] = [];
   
@@ -169,25 +257,11 @@ export function parseRawRecipeText(text: string): Partial<Recipe> {
       continue;
     }
     
-    // Servings detector
-    const servingMatch = line.match(/(?:rendimento|porções|serve|servings?):\s*(\d+)/i);
-    if (servingMatch) {
-      servings = parseInt(servingMatch[1], 10);
-      continue;
-    }
-    
-    // Time detector
-    const timeMatch = line.match(/(?:tempo|preparo|tempo de preparo):\s*(\d+)\s*min/i);
-    if (timeMatch) {
-      cookTimeMinutes = parseInt(timeMatch[1], 10);
-      continue;
-    }
-    
     if (mode === 'ingredients') {
       ingredients.push(parseIngredientLine(line, ingredients.length));
     } else if (mode === 'instructions') {
       const stepText = line.replace(/^\d+[\.\)\-]\s*/, '').trim();
-      if (stepText) {
+      if (stepText && !/^(dica|observação|obs|rendimento):?$/i.test(stepText) && !stepText.startsWith('#')) {
         instructions.push({
           step: instructions.length + 1,
           instruction: stepText,
@@ -201,25 +275,19 @@ export function parseRawRecipeText(text: string): Partial<Recipe> {
     }
   }
 
-  // Detect category from title keywords
-  const lowerTitle = title.toLowerCase();
-  if (/bolo|torta doce|sobremesa|doce|mousse|pudim|cookie|brigadeiro|chocolate/i.test(lowerTitle)) {
-    category = 'Sobremesa';
-  } else if (/café|panqueca|waffle|omelete|tapioca|smoothie/i.test(lowerTitle)) {
-    category = 'Café da Manhã';
-  } else if (/salada|bowl/i.test(lowerTitle)) {
-    category = 'Saladas & Bowls';
-  }
+  const meta = inferRecipeMetadata(title, cleanedText, instructions);
 
   return {
     title,
-    servings,
-    prepTimeMinutes,
-    cookTimeMinutes,
-    category,
+    servings: meta.servings,
+    prepTimeMinutes: meta.prepTimeMinutes,
+    cookTimeMinutes: meta.cookTimeMinutes,
+    category: meta.category,
+    tags: meta.tags,
+    nutrition: meta.calories ? { calories: meta.calories, protein: 0, carbs: 0, fat: 0 } : undefined,
     ingredients,
     instructions: instructions.length > 0 ? instructions : [
-      { step: 1, instruction: 'Misture todos os ingredientes e prepare com carinho.', timerSeconds: 600 }
+      { step: 1, instruction: 'Misture todos os ingredientes e prepare com carinho.', timerSeconds: 300 }
     ],
   };
 }
@@ -369,23 +437,28 @@ export async function extractRecipeFromUrl(url: string): Promise<Partial<Recipe>
         const reelMatch = url.match(/(?:reel|p)\/([a-zA-Z0-9_-]+)/);
         const reelId = reelMatch ? reelMatch[1] : null;
 
+        const culinaryTags = (parsed.tags && parsed.tags.length > 0) 
+          ? parsed.tags 
+          : ['Prático', 'Caseiro'];
+
         return {
           title: parsed.title || data.title || 'Receita do Instagram',
           description: parsed.description || data.description || data.caption.substring(0, 300),
           image: data.image || 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=1200&q=80',
-          prepTimeMinutes: parsed.prepTimeMinutes || 15,
-          cookTimeMinutes: parsed.cookTimeMinutes || 25,
-          servings: parsed.servings || 4,
+          prepTimeMinutes: parsed.prepTimeMinutes !== undefined ? parsed.prepTimeMinutes : 10,
+          cookTimeMinutes: parsed.cookTimeMinutes !== undefined ? parsed.cookTimeMinutes : 10,
+          servings: parsed.servings || 2,
           difficulty: parsed.difficulty || 'Fácil',
-          cuisine: parsed.cuisine || 'Gourmet',
-          category: parsed.category || 'Jantar',
-          tags: ['Instagram', 'Vídeo', ...(parsed.tags || [])],
+          cuisine: parsed.cuisine || (culinaryTags.includes('Fit') ? 'Saudável' : 'Caseira'),
+          category: parsed.category || 'Lanches & Aperitivos',
+          tags: culinaryTags,
           sourceUrl: url,
           sourcePlatform: 'instagram',
           videoEmbedUrl: data.videoEmbedUrl || (reelId ? `https://www.instagram.com/reel/${reelId}/embed` : undefined),
-          author: data.author || '@chef_instagram',
+          author: data.author || '@instagram',
           rating: 5.0,
           favorite: true,
+          nutrition: parsed.nutrition,
           ingredients: parsed.ingredients && parsed.ingredients.length > 0
             ? parsed.ingredients
             : [
