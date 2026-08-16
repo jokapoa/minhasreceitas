@@ -52,49 +52,89 @@ export function extractTimerFromText(text: string): number | undefined {
   return undefined;
 }
 
+const KNOWN_UNITS = [
+  'colheres de sopa', 'colher de sopa',
+  'colheres de chá', 'colher de chá',
+  'colheres de sobremesa', 'colher de sobremesa',
+  'colheres', 'colher',
+  'xícaras de chá', 'xícara de chá',
+  'xícaras', 'xícara', 'xicaras', 'xicara',
+  'copos', 'copo',
+  'potes', 'pote',
+  'envelopes', 'envelope',
+  'pacotes', 'pacote',
+  'latas', 'lata',
+  'caixinhas', 'caixinha',
+  'garrafas', 'garrafa',
+  'fatias', 'fatia',
+  'dentes', 'dente',
+  'pitadas', 'pitada',
+  'ramos', 'ramo',
+  'folhas', 'folha',
+  'unidades', 'unidade', 'un',
+  'kg', 'g', 'mg',
+  'ml', 'l', 'litros', 'litro',
+  'scoops', 'scoop'
+];
+
 // Parse an ingredient line like "2 colheres de sopa de azeite" or "500g de peito de frango"
 export function parseIngredientLine(line: string, index: number): Ingredient {
-  const cleanLine = line.replace(/^[-*•\d+.]\s*/, '').trim();
-  
-  const regex = /^([\d.,/½¼¾⅓⅔⅛]+)?\s*([a-zA-Záàâãéèêíïóôõöúçñ\s]+?)?\s*(?:de\s+)?([a-zA-Z0-9áàâãéèêíïóôõöúçñ\s,().-]+)$/i;
-  const match = cleanLine.match(regex);
+  // Strip bullet points ONLY, preserving numbers!
+  let clean = line.replace(/^[\s*•\-–—#️⃣✨🍳🔥💥⭐❤️🌟📌👉👇💡]+\s*/u, '').trim();
 
   let amount = 1;
   let unit = 'unidade';
-  let name = cleanLine;
+  let name = clean;
 
-  if (match) {
-    if (match[1]) {
-      const numStr = match[1].replace(',', '.');
-      if (numStr === '½') amount = 0.5;
-      else if (numStr === '¼') amount = 0.25;
-      else if (numStr === '¾') amount = 0.75;
-      else if (numStr.includes('/')) {
-        const [num, den] = numStr.split('/');
-        amount = parseFloat(num) / parseFloat(den);
-      } else {
-        amount = parseFloat(numStr) || 1;
+  // 1. Extract amount from start: e.g. "200", "1.5", "1/2", "½", "5 a 6"
+  const amountMatch = clean.match(/^([\d.,/½¼¾⅓⅔⅛]+(?:\s*a\s*\d+)?)\s*(.*)$/i);
+  if (amountMatch) {
+    const rawAmount = amountMatch[1].trim();
+    const rest = amountMatch[2].trim();
+
+    // Parse fraction or number
+    if (rawAmount === '½') amount = 0.5;
+    else if (rawAmount === '¼') amount = 0.25;
+    else if (rawAmount === '¾') amount = 0.75;
+    else if (rawAmount.includes('/')) {
+      const [n, d] = rawAmount.split('/');
+      amount = parseFloat(n) / parseFloat(d);
+    } else if (rawAmount.includes('a')) {
+      amount = parseFloat(rawAmount.split('a')[0]);
+    } else {
+      amount = parseFloat(rawAmount.replace(',', '.')) || 1;
+    }
+
+    // 2. Check if rest starts with a known unit
+    let foundUnit = false;
+    for (const u of KNOWN_UNITS) {
+      const unitRegex = new RegExp(`^${u}\\b\\s*(?:de\\s+)?(.*)$`, 'i');
+      const uMatch = rest.match(unitRegex);
+      if (uMatch) {
+        unit = u;
+        name = uMatch[1].trim();
+        foundUnit = true;
+        break;
       }
     }
 
-    if (match[2]) {
-      const u = match[2].trim().toLowerCase();
-      if (/^(g|kg|ml|l|xícara|xícaras|xicara|xicaras|colher|colheres|colher de sopa|colher de chá|colheres de sopa|colheres de chá|dente|dentes|unidade|unidades|fatia|fatias|pitada|pitadas|punhado|maço|lata|latas|caixinha|caixinhas|pacote)$/i.test(u)) {
-        unit = match[2].trim();
-        name = match[3] ? match[3].trim() : cleanLine;
-      } else {
-        name = `${match[2]} ${match[3] || ''}`.trim();
-      }
+    if (!foundUnit) {
+      name = rest.replace(/^(?:de\s+)/i, '').trim();
     }
+  }
+
+  // Capitalize first letter of name
+  if (name.length > 0) {
+    name = name.charAt(0).toUpperCase() + name.slice(1);
   }
 
   return {
     id: `ing-${Date.now()}-${index}`,
-    name: name || cleanLine,
+    name: name || clean,
     amount: isNaN(amount) ? 1 : amount,
     unit: unit || 'unidade',
-    category: categorizeIngredient(name || cleanLine),
-    originalText: cleanLine,
+    category: categorizeIngredient(name || clean),
+    originalText: line,
   };
 }
 
